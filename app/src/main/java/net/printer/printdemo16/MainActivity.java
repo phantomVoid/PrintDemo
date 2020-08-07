@@ -7,9 +7,12 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Message;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.text.method.ReplacementTransformationMethod;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -22,18 +25,41 @@ import android.widget.ListView;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.util.Log;
+
+import com.baidu.ocr.ui.camera.CameraActivity;
+import com.google.gson.Gson;
 
 import net.posprinter.posprinterface.IMyBinder;
+import net.posprinter.posprinterface.ProcessData;
 import net.posprinter.posprinterface.TaskCallback;
 import net.posprinter.service.PosprinterService;
+import net.posprinter.utils.DataForSendToPrinterTSC;
 import net.posprinter.utils.PosPrinterDev;
 import net.printer.printdemo16.ReceiptPrinter.R58Activity;
 import net.printer.printdemo16.ReceiptPrinter.R80Activity;
 
+import org.xutils.common.Callback;
+import org.xutils.http.RequestParams;
+import org.xutils.x;
+
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+
+import net.printer.printdemo16.utils.Base64Util;
+import net.printer.printdemo16.utils.ConstantValue;
+import net.printer.printdemo16.utils.FileUtil;
+import net.printer.printdemo16.utils.HttpUtil;
+import net.printer.printdemo16.utils.MyApp;
+import net.printer.printdemo16.utils.TokenInfo;
+import net.printer.printdemo16.utils.WordInfo;
 
 public class MainActivity extends AppCompatActivity implements View.OnClickListener {
 
@@ -55,6 +81,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        logger.i("MainActivity.onCreate", "********************-- MainActivity.onCreate[start] --********************");
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
@@ -63,18 +90,23 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         bindService(intent, mSerconnection, BIND_AUTO_CREATE);
 
         initView();
+        logger.i("MainActivity.onCreate", "********************-- MainActivity.onCreate[end] --********************");
     }
 
     private Spinner port;
     private TextView adrress;
-    private EditText ip_adrress;
-    private Button connect,disconnect,pos58,pos80,tsc80,other;
-    private int portType=0;//0是网络，1是蓝牙，2是USB
-    public static boolean ISCONNECT=false;
+    private EditText ip_adrress, tv_car_no, editAreaNo, editTextTime;
+    private Button connect, disconnect, pos58, pos80, tsc80, other, btn_open_ocr_ui, btn_print;
+    private int portType = 0;//0是网络，1是蓝牙，2是USB
+    public static boolean ISCONNECT = false;
 
     private void initView() {
         port = findViewById(R.id.sp_port);
         adrress = findViewById(R.id.tv_address);
+        tv_car_no = findViewById(R.id.tv_car_no);
+        editAreaNo = findViewById(R.id.editAreaNo);
+        editTextTime = findViewById(R.id.editTextTime);
+
         ip_adrress = findViewById(R.id.et_address);
         connect = findViewById(R.id.connect);
         disconnect = findViewById(R.id.disconnect);
@@ -170,19 +202,153 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                     break;
             }
         }
-
-        if (id == R.id.bt_tsc80){
-            if (ISCONNECT){
+/*
+        if (id == R.id.bt_tsc80) {
+            if (ISCONNECT) {
                 Intent intent = new Intent(this, TscActivity.class);
                 startActivity(intent);
             } else {
                 Toast.makeText(getApplicationContext(), getString(R.string.connect_first), Toast.LENGTH_SHORT).show();
             }
         }
+*/
 
         if (id == R.id.btn_open_ocr_ui) {
             openCameraByBaidu();
         }
+        if (id == R.id.btn_print) {
+            if (ISCONNECT) {
+                String carNo = null;
+                String areaNo = null;
+                String timeStr = null;
+                try {
+                    carNo = tv_car_no.getText().toString();
+                    areaNo = editAreaNo.getText().toString();
+                    timeStr = editTextTime.getText().toString();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+                if (carNo != null && carNo.length() > 0) {
+                    if (areaNo != null && areaNo.length() > 0) {
+                        carNo = "车架号:" + carNo;
+                        areaNo = "场位:" + areaNo;
+                        timeStr = "入库时间:" + timeStr;
+                        StringBuilder builder = new StringBuilder();
+                        String printText = builder.append(carNo + "-").append(areaNo + "-").append(timeStr).toString();
+                        printText(carNo, areaNo, timeStr,printText);
+                        printBarcode(printText);
+                    } else {
+                        Toast.makeText(getApplicationContext(), "请输入场位号", Toast.LENGTH_SHORT).show();
+                    }
+                } else {
+                    Toast.makeText(getApplicationContext(), "请扫描车架号", Toast.LENGTH_SHORT).show();
+                }
+            } else {
+                Toast.makeText(getApplicationContext(), getString(R.string.connect_first), Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+    private void printBarcode(final String printContext){
+        if (MainActivity.ISCONNECT){
+
+            MainActivity.myBinder.WriteSendData(new TaskCallback() {
+                @Override
+                public void OnSucceed() {
+                    Toast.makeText(getApplicationContext(),getString(R.string.send_success),Toast.LENGTH_SHORT).show();
+                }
+
+                @Override
+                public void OnFailed() {
+                    Toast.makeText(getApplicationContext(),getString(R.string.send_failed),Toast.LENGTH_SHORT).show();
+
+                }
+            }, new ProcessData() {
+                @Override
+                public List<byte[]> processDataBeforeSend() {
+                    List<byte[]> list = new ArrayList<>();
+                    //设置标签纸大小
+                    list.add(DataForSendToPrinterTSC.sizeBymm(50,30));
+                    //设置间隙
+                    list.add(DataForSendToPrinterTSC.gapBymm(2,0));
+                    //清除缓存
+                    list.add(DataForSendToPrinterTSC.cls());
+                    //设置方向
+                    list.add(DataForSendToPrinterTSC.direction(0));
+                    //线条
+//                    list.add(DataForSendToPrinterTSC.bar(10,10,200,3));
+                    //条码
+                    list.add(DataForSendToPrinterTSC.barCode(10,15,"128",100,1,0,2,2,printContext));
+                    //文本
+//                    list.add(DataForSendToPrinterTSC.text(10,30,"1",0,1,1,"abcasdjknf"));
+                    //打印
+                    list.add(DataForSendToPrinterTSC.print(1));
+
+                    return list;
+                }
+            });
+
+        }else {
+            Toast.makeText(getApplicationContext(),getString(R.string.connect_first),Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void printText(final String carNo, final String areaNo, final String timeNo,final String printText) {
+        logger.i("MainActivity.printText","********************-- MainActivity.printText[start] --********************");
+        logger.i("carNo",carNo);
+        logger.i("areaNo",areaNo);
+        logger.i("timeNo",timeNo);
+
+        if (MainActivity.ISCONNECT) {
+
+            MainActivity.myBinder.WriteSendData(new TaskCallback() {
+                @Override
+                public void OnSucceed() {
+                    Toast.makeText(getApplicationContext(), getString(R.string.send_success), Toast.LENGTH_SHORT).show();
+                }
+
+                @Override
+                public void OnFailed() {
+                    Toast.makeText(getApplicationContext(), getString(R.string.send_failed), Toast.LENGTH_SHORT).show();
+
+                }
+            }, new ProcessData() {
+                @Override
+                public List<byte[]> processDataBeforeSend() {
+                    String carNoStr = carNo;
+                    String areaNoStr = areaNo;
+                    String timeNoStr = timeNo;
+                    List<byte[]> list = new ArrayList<>();
+                    //设置标签纸大小
+                    list.add(DataForSendToPrinterTSC.sizeBymm(80, 30));
+                    //设置间隙
+                    list.add(DataForSendToPrinterTSC.gapBymm(0, 0));
+                    //清除缓存
+                    list.add(DataForSendToPrinterTSC.cls());
+                    //设置方向
+                    list.add(DataForSendToPrinterTSC.direction(0));
+                    //线条
+//                    list.add(DataForSendToPrinterTSC.bar(10,10,200,3));
+                    //条码
+                    //文本
+                    list.add(DataForSendToPrinterTSC.text(10, 60, "TSS24.BF2", 0, 1, 1, carNo));
+                    list.add(DataForSendToPrinterTSC.text(10, 120, "TSS24.BF2", 0, 1, 1, areaNo));
+                    list.add(DataForSendToPrinterTSC.text(10, 180, "TSS24.BF2", 0, 1, 1, timeNo));
+
+//                    list.add(DataForSendToPrinterTSC.barCode(10,15,"128",100,1,0,2,2,printText));
+
+
+                    //打印
+                    list.add(DataForSendToPrinterTSC.print(1));
+
+                    return list;
+                }
+            });
+
+        } else {
+            Toast.makeText(getApplicationContext(), getString(R.string.connect_first), Toast.LENGTH_SHORT).show();
+        }
+        logger.i("MainActivity.printText","********************-- MainActivity.printText[end] --********************");
     }
 
     /**
