@@ -157,7 +157,6 @@ public class TscActivity extends AppCompatActivity implements View.OnClickListen
         }else {
             Toast.makeText(getApplicationContext(),getString(R.string.connect_first),Toast.LENGTH_SHORT).show();
         }
-
     }
 
     private void printBarcode(){
