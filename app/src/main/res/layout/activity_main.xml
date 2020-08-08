@@ -72,34 +72,6 @@
             android:text="@string/discon" />
     </LinearLayout>
 
-<!--
-    <android.support.v7.widget.AppCompatTextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginLeft="15dp"
-        android:layout_marginTop="20dp"
-        android:text="@string/barcode_printer"
-        android:textSize="18sp" />
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="45dp"
-        android:layout_marginLeft="10dp"
-        android:layout_marginRight="10dp"
-        android:layout_marginTop="10dp"
-        android:orientation="horizontal"
-        android:visibility="visible">
-
-        <Button
-            android:id="@+id/bt_tsc80"
-            style="@style/ButtonText"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_marginLeft="5dp"
-            android:layout_weight="1"
-            android:text="@string/barcodePrinter" />
-    </LinearLayout>
--->
     <TableLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -132,7 +104,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="10"
                 android:ems="10"
-                android:enabled="false"
+                android:enabled="true"
                 android:hint="扫描车架号生成"
                 android:inputType="text"/>
         </TableRow>
@@ -186,25 +158,6 @@
         android:layout_height="match_parent"
         android:orientation="vertical"
         android:padding="10dp">
-        <android.support.v7.widget.AppCompatTextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:focusable="true"
-            android:focusableInTouchMode="true"
-            android:gravity="center"
-            android:text="条码内容"
-            android:textColor="#ff000000"
-            android:textSize="18sp" />
-
-        <android.support.v7.widget.AppCompatEditText
-            android:id="@+id/printer_edt_code"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="10dp"
-            android:layout_marginTop="10dp"
-            android:enabled="false"
-            android:hint="待生成打印条码内容"
-            android:inputType="text" />
 
         <Button
             style="@style/ButtonText"
@@ -220,6 +173,13 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="打印条码" />
+
+        <TextView
+            android:id="@+id/tv_output"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:enabled="false"
+            android:text="TextView" />
     </LinearLayout>
 
 </LinearLayout>

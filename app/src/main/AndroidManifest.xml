@@ -36,8 +36,9 @@
         </activity>
 
         <service android:name="net.posprinter.service.PosprinterService" />
+<!--        <service android:name="android.database.sqlite.SQLiteDatabase" />-->
 
-        <!--<activity android:name=".ReceiptPrinter.RP58Activity" />-->
+<!--        <activity android:name=".ReceiptPrinter.RP58Activity" />-->
 <!--        <activity android:name=".ReceiptPrinter.R58Activity" />-->
 <!--        <activity android:name=".ReceiptPrinter.R80Activity" />-->
 <!--        <activity android:name=".TscActivity" />-->

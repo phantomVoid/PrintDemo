@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">PrintDemo </string>
+    <string name="app_name">voidOCR</string>
 
     <string-array name="port">
         <item>网络</item>

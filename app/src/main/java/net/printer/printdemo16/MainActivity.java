@@ -1,15 +1,25 @@
 package net.printer.printdemo16;
 
+import android.Manifest;
+import android.app.Activity;
 import android.app.AlertDialog;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.content.ComponentName;
+import android.content.ContentValues;
+import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Message;
+import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.text.method.ReplacementTransformationMethod;
@@ -27,6 +37,8 @@ import android.widget.TextView;
 import android.widget.Toast;
 import android.util.Log;
 
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONObject;
 import com.baidu.ocr.ui.camera.CameraActivity;
 import com.google.gson.Gson;
 
@@ -43,28 +55,42 @@ import org.xutils.common.Callback;
 import org.xutils.http.RequestParams;
 import org.xutils.x;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
+import net.printer.printdemo16.pojo.XmlPojo;
 import net.printer.printdemo16.utils.Base64Util;
+import net.printer.printdemo16.utils.CommonUtil;
 import net.printer.printdemo16.utils.ConstantValue;
+import net.printer.printdemo16.utils.DatabaseHelper;
+import net.printer.printdemo16.utils.ExcelUtil;
 import net.printer.printdemo16.utils.FileUtil;
 import net.printer.printdemo16.utils.HttpUtil;
 import net.printer.printdemo16.utils.MyApp;
 import net.printer.printdemo16.utils.TokenInfo;
 import net.printer.printdemo16.utils.WordInfo;
+import net.printer.printdemo16.utils.XmlParseUtils;
 
 public class MainActivity extends AppCompatActivity implements View.OnClickListener {
 
     public static Log logger;
     public static IMyBinder myBinder;
+    public static final String TABLE_NAME = "void_ocr";
 
     ServiceConnection mSerconnection = new ServiceConnection() {
         @Override
@@ -94,7 +120,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     }
 
     private Spinner port;
-    private TextView adrress;
+    private TextView adrress,tv_output;
     private EditText ip_adrress, tv_car_no, editAreaNo, editTextTime;
     private Button connect, disconnect, pos58, pos80, tsc80, other, btn_open_ocr_ui, btn_print;
     private int portType = 0;//0是网络，1是蓝牙，2是USB
@@ -113,6 +139,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 //        tsc80 = findViewById(R.id.bt_tsc80);
         btn_open_ocr_ui = findViewById(R.id.btn_open_ocr_ui);
         btn_print = findViewById(R.id.btn_print);
+        tv_output = findViewById(R.id.tv_output);
 
 
         SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd");
@@ -202,41 +229,58 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                     break;
             }
         }
-/*
-        if (id == R.id.bt_tsc80) {
-            if (ISCONNECT) {
-                Intent intent = new Intent(this, TscActivity.class);
-                startActivity(intent);
-            } else {
-                Toast.makeText(getApplicationContext(), getString(R.string.connect_first), Toast.LENGTH_SHORT).show();
-            }
-        }
-*/
 
         if (id == R.id.btn_open_ocr_ui) {
             openCameraByBaidu();
         }
         if (id == R.id.btn_print) {
             if (ISCONNECT) {
+                SQLiteDatabase db = null;
+                try {
+                    DatabaseHelper dbHelper = new DatabaseHelper(this, "void_ocr", null, 1);
+                    db = dbHelper.getWritableDatabase();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+
                 String carNo = null;
                 String areaNo = null;
                 String timeStr = null;
+
+                XmlPojo xmlPojo = new XmlPojo();
+                List<XmlPojo> xmlPojos = new ArrayList<>();
+
                 try {
                     carNo = tv_car_no.getText().toString();
-                    areaNo = editAreaNo.getText().toString();
+                    areaNo = (editAreaNo.getText().toString()).toUpperCase();
                     timeStr = editTextTime.getText().toString();
+
+                    xmlPojo.setAreaNo(areaNo);
+                    xmlPojo.setCarNo(carNo);
+                    xmlPojo.setTimeStr(timeStr);
+
+                    xmlPojos.add(xmlPojo);
+
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
                 if (carNo != null && carNo.length() > 0) {
                     if (areaNo != null && areaNo.length() > 0) {
+                        StringBuilder builder = new StringBuilder();
+                        String printText = builder.append(areaNo + "-").append(carNo + "-").append(timeStr).toString();
+
                         carNo = "车架号:" + carNo;
                         areaNo = "场位:" + areaNo;
                         timeStr = "入库时间:" + timeStr;
-                        StringBuilder builder = new StringBuilder();
-                        String printText = builder.append(carNo + "-").append(areaNo + "-").append(timeStr).toString();
-                        printText(carNo, areaNo, timeStr,printText);
-                        printBarcode(printText);
+                        printText(carNo, areaNo, timeStr, printText);
+
+                        tv_car_no.setText("");
+                        editAreaNo.setText("");
+
+                        addToDb(db, xmlPojo);
+                        getFromDb(db, xmlPojo.getTimeStr());
+
+
                     } else {
                         Toast.makeText(getApplicationContext(), "请输入场位号", Toast.LENGTH_SHORT).show();
                     }
@@ -249,55 +293,95 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         }
     }
 
-    private void printBarcode(final String printContext){
-        if (MainActivity.ISCONNECT){
-
-            MainActivity.myBinder.WriteSendData(new TaskCallback() {
-                @Override
-                public void OnSucceed() {
-                    Toast.makeText(getApplicationContext(),getString(R.string.send_success),Toast.LENGTH_SHORT).show();
-                }
-
-                @Override
-                public void OnFailed() {
-                    Toast.makeText(getApplicationContext(),getString(R.string.send_failed),Toast.LENGTH_SHORT).show();
-
-                }
-            }, new ProcessData() {
-                @Override
-                public List<byte[]> processDataBeforeSend() {
-                    List<byte[]> list = new ArrayList<>();
-                    //设置标签纸大小
-                    list.add(DataForSendToPrinterTSC.sizeBymm(50,30));
-                    //设置间隙
-                    list.add(DataForSendToPrinterTSC.gapBymm(2,0));
-                    //清除缓存
-                    list.add(DataForSendToPrinterTSC.cls());
-                    //设置方向
-                    list.add(DataForSendToPrinterTSC.direction(0));
-                    //线条
-//                    list.add(DataForSendToPrinterTSC.bar(10,10,200,3));
-                    //条码
-                    list.add(DataForSendToPrinterTSC.barCode(10,15,"128",100,1,0,2,2,printContext));
-                    //文本
-//                    list.add(DataForSendToPrinterTSC.text(10,30,"1",0,1,1,"abcasdjknf"));
-                    //打印
-                    list.add(DataForSendToPrinterTSC.print(1));
-
-                    return list;
-                }
-            });
-
-        }else {
-            Toast.makeText(getApplicationContext(),getString(R.string.connect_first),Toast.LENGTH_SHORT).show();
+    public void addToDb(SQLiteDatabase db, XmlPojo xmlPojo) {
+        logger.i("MainActivity.addToDb", "********************-- MainActivity.addToDb[start] --********************");
+        try {
+            ContentValues values = new ContentValues();
+            values.put("car_area", xmlPojo.getAreaNo());
+            values.put("car_no", xmlPojo.getCarNo());
+            values.put("in_time", xmlPojo.getTimeStr());
+            db.insert("void_ocr", null, values);
+        } catch (Exception e) {
+            e.printStackTrace();
         }
+        logger.i("MainActivity.addToDb", "********************-- MainActivity.addToDb[end] --********************");
     }
 
-    private void printText(final String carNo, final String areaNo, final String timeNo,final String printText) {
-        logger.i("MainActivity.printText","********************-- MainActivity.printText[start] --********************");
-        logger.i("carNo",carNo);
-        logger.i("areaNo",areaNo);
-        logger.i("timeNo",timeNo);
+    public List<XmlPojo> getFromDb(SQLiteDatabase db, String in_time) {
+        logger.i("MainActivity.getFromDb", "********************-- MainActivity.getFromDb[start] --********************");
+        /**
+         * db.query(tableName,null1,null2,null3,null4,null5,null6);
+         * select null1 from tableName where null2=null3 group by null4 having null5 order by null6
+         */
+        Cursor cursor = null;
+        String textview_data = null;
+        List<XmlPojo> xmlPojos = new ArrayList<>();
+        try {
+            cursor = db.query(TABLE_NAME, null, "in_time =?", new String[]{in_time}, null, null, null);
+            textview_data = "";
+            while (cursor.moveToNext()) {
+                String[] columnNames = cursor.getColumnNames();
+                XmlPojo xmlPojo = new XmlPojo();
+                for (String key : columnNames) {
+                    logger.i("columnNames",key);
+                    String value = cursor.getString(cursor.getColumnIndex(key));
+                    switch (key) {
+                        case "car_area":
+                            xmlPojo.setAreaNo(value);
+                            break;
+                        case "car_no":
+                            xmlPojo.setCarNo(value);
+                            break;
+                        case "in_time":
+                            xmlPojo.setTimeStr(value);
+                            break;
+                    }
+                    logger.i(key,value);
+                }
+                xmlPojos.add(xmlPojo);
+                doExcel(xmlPojos);
+            }
+            return null;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }finally {
+            // 关闭游标，释放资源
+            logger.i("MainActivity.getFromDb", "********************-- MainActivity.getFromDb[end] --********************");
+            cursor.close();
+        }
+        return null;
+    }
+
+    public void doExcel(List<XmlPojo> xmlPojos){
+        logger.i("MainActivity.doExcel","********************-- MainActivity.doExcel[start] --********************");
+        try {
+            String filePath = Environment.DIRECTORY_DOWNLOADS;
+//            String filePath = Environment.getExternalStorageState();
+//            String filePath = this.getFilesDir().getPath().toString();
+            File file = new File(filePath);
+            if (!file.exists()) {
+                file.mkdirs();
+            }
+            String[] title = {"车架号", "场位", "入库时间"};
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd");
+            String timeStr = sdf.format(new Date());
+            String fileName = timeStr + ".xls";
+            filePath = filePath +"/"+ fileName;
+            ExcelUtil.initExcel(fileName,title);
+            ExcelUtil.writeObjListToExcel(xmlPojos, filePath, this);
+            logger.i("Excel文件已导出",filePath);
+            tv_output.setText("Excel文件已导出: " + filePath);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        logger.i("MainActivity.doExcel", "********************-- MainActivity.doExcel[end] --********************");
+    }
+
+    private void printText(final String carNo, final String areaNo, final String timeNo, final String printText) {
+        logger.i("MainActivity.printText", "********************-- MainActivity.printText[start] --********************");
+        logger.i("carNo", carNo);
+        logger.i("areaNo", areaNo);
+        logger.i("timeNo", timeNo);
 
         if (MainActivity.ISCONNECT) {
 
@@ -320,7 +404,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                     String timeNoStr = timeNo;
                     List<byte[]> list = new ArrayList<>();
                     //设置标签纸大小
-                    list.add(DataForSendToPrinterTSC.sizeBymm(80, 30));
+                    list.add(DataForSendToPrinterTSC.sizeBymm(80, 50));
                     //设置间隙
                     list.add(DataForSendToPrinterTSC.gapBymm(0, 0));
                     //清除缓存
@@ -334,9 +418,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                     list.add(DataForSendToPrinterTSC.text(10, 60, "TSS24.BF2", 0, 1, 1, carNo));
                     list.add(DataForSendToPrinterTSC.text(10, 120, "TSS24.BF2", 0, 1, 1, areaNo));
                     list.add(DataForSendToPrinterTSC.text(10, 180, "TSS24.BF2", 0, 1, 1, timeNo));
-
-//                    list.add(DataForSendToPrinterTSC.barCode(10,15,"128",100,1,0,2,2,printText));
-
+                    list.add(DataForSendToPrinterTSC.qrCode(320, 100, "M", 4, "A", 0, "M1", "S3", printText));
 
                     //打印
                     list.add(DataForSendToPrinterTSC.print(1));
@@ -348,7 +430,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         } else {
             Toast.makeText(getApplicationContext(), getString(R.string.connect_first), Toast.LENGTH_SHORT).show();
         }
-        logger.i("MainActivity.printText","********************-- MainActivity.printText[end] --********************");
+        logger.i("MainActivity.printText", "********************-- MainActivity.printText[end] --********************");
     }
 
     /**
